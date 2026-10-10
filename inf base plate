@@ -1,0 +1,107 @@
+-- Infinite Generating Grass Baseplate Script (Reduced Generation)
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+-- Configuration
+local CHUNK_SIZE = 512      -- Size of each square baseplate chunk
+local RENDER_DISTANCE = 1   -- Reduced to 1 (generates a 3x3 grid around you instead of 5x5)
+local CHECK_INTERVAL = 1    -- How often (in seconds) to check player positions
+
+-- CLEANUP PREVIOUS RUNS: Wipe out any old chunks or baseplates from prior executions
+for _, child in ipairs(Workspace:GetChildren()) do
+    if child.Name == "Baseplate" or child.Name == "InfiniteBaseplate" or child.Name:match("^InfiniteChunk_") or child.Name:match("^InfiniteGrassChunk_") then
+        child:Destroy()
+    end
+end
+
+local activeChunks = {} -- Dictionary to keep track of spawned chunks: {[coordsString] = Part}
+
+-- Helper function to create a single grass chunk
+local function createChunk(chunkX, chunkZ)
+    local chunkKey = chunkX .. "," .. chunkZ
+    if activeChunks[chunkKey] then return end -- Chunk already exists
+
+    local baseplate = Instance.new("Part")
+    baseplate.Name = "InfiniteGrassChunk_" .. chunkKey
+    baseplate.Size = Vector3.new(CHUNK_SIZE, 2, CHUNK_SIZE)
+    -- Position chunks seamlessly next to each other
+    baseplate.Position = Vector3.new(chunkX * CHUNK_SIZE, -2, chunkZ * CHUNK_SIZE)
+    baseplate.Anchored = true
+    baseplate.CanCollide = true
+    baseplate.Locked = true
+    baseplate.Material = Enum.Material.Grass
+    baseplate.Color = Color3.fromRGB(75, 125, 55) -- Natural grassy green shade
+
+    -- Add a subtle grass/ground texture detail on top
+    local texture = Instance.new("Texture")
+    texture.Texture = "rbxassetid://6372755229"
+    texture.Face = Enum.NormalId.Top
+    texture.StudsPerTileU = 16
+    texture.StudsPerTileV = 16
+    texture.Transparency = 0.5
+    texture.Parent = baseplate
+
+    baseplate.Parent = Workspace
+    activeChunks[chunkKey] = baseplate
+end
+
+-- Function to remove chunks that are too far away
+local function removeChunk(chunkKey)
+    if activeChunks[chunkKey] then
+        activeChunks[chunkKey]:Destroy()
+        activeChunks[chunkKey] = nil
+    end
+end
+
+-- Main update loop to generate/remove chunks based on player movement
+task.spawn(function()
+    while true do
+        task.wait(CHECK_INTERVAL)
+
+        -- Gather all current player positions
+        local playerPositions = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                table.insert(playerPositions, character.HumanoidRootPart.Position)
+            end
+        end
+
+        -- If no players are loaded yet, skip this cycle
+        if #playerPositions == 0 then continue end
+
+        -- Track which chunks should be kept alive in this cycle
+        local neededChunks = {}
+
+        for _, pos in ipairs(playerPositions) do
+            -- Find which chunk grid coordinates the player is currently standing in
+            local playerChunkX = math.round(pos.X / CHUNK_SIZE)
+            local playerChunkZ = math.round(pos.Z / CHUNK_SIZE)
+
+            -- Loop through the smaller render distance grid around the player
+            for x = -RENDER_DISTANCE, RENDER_DISTANCE do
+                for z = -RENDER_DISTANCE, RENDER_DISTANCE do
+                    local targetX = playerChunkX + x
+                    local targetZ = playerChunkZ + z
+                    local key = targetX .. "," .. targetZ
+
+                    neededChunks[key] = {x = targetX, z = targetZ}
+                end
+            end
+        end
+
+        -- Create newly required chunks
+        for key, coords in pairs(neededChunks) do
+            if not activeChunks[key] then
+                createChunk(coords.x, coords.z)
+            end
+        end
+
+        -- Cleanup chunks that are no longer in the render range
+        for key, _ in pairs(activeChunks) do
+            if not neededChunks[key] then
+                removeChunk(key)
+            end
+        end
+    end
+end)
